@@ -9,7 +9,7 @@ services:
     plan: free
     env:
       - key: TELEGRAM_TOKEN
-        value: TU_TOKEN_AQUI
+        value: 8229142878:AAFlWgfCg3RiMfVmDS9LiOnBsNv31jhjejU
     envVars:
       - key: PORT
         value: 8080
