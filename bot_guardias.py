@@ -1,244 +1,152 @@
-import logging
-import json
+#!/usr/bin/env python3
 import os
+import logging
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 # Configuración
-TOKEN = os.environ.get('TELEGRAM_TOKEN', '8229142878:AAFlWgfCg3RiMfVmDS9LiOnBsNv31jhjejU')
+TOKEN = os.environ.get('TELEGRAM_TOKEN')
 PORT = int(os.environ.get('PORT', 8080))
-DATA_FILE = "guardias.json"
 
-# Configurar logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+# Verificar token
+if not TOKEN:
+    print("ERROR: Variable TELEGRAM_TOKEN no configurada")
+    exit(1)
 
-class GuardiasManager:
-    def __init__(self):
-        self.guardias = self.cargar_guardias()
-    
-    def cargar_guardias(self):
-        """Cargar guardias desde archivo JSON"""
-        if os.path.exists(DATA_FILE):
-            try:
-                with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
-    
-    def guardar_guardias(self):
-        """Guardar guardias en archivo JSON"""
-        with open(DATA_FILE, 'w', encoding='utf-8') as f:
-            json.dump(self.guardias, f, ensure_ascii=False, indent=2)
-    
-    def agregar_guardia(self, persona, fecha_inicio, semanas=1):
-        """Agregar una guardia semanal"""
-        fecha = datetime.strptime(fecha_inicio, "%Y-%m-%d")
-        
-        for i in range(semanas):
-            fecha_semana = fecha + timedelta(weeks=i)
-            fecha_fin = fecha_semana + timedelta(days=6)
-            
-            semana_key = fecha_semana.strftime("%Y-W%U")
-            
-            if semana_key not in self.guardias:
-                self.guardias[semana_key] = []
-            
-            self.guardias[semana_key].append({
-                "persona": persona,
-                "fecha_inicio": fecha_semana.strftime("%Y-%m-%d"),
-                "fecha_fin": fecha_fin.strftime("%Y-%m-%d")
-            })
-        
-        self.guardar_guardias()
-    
-    def obtener_guardias_mes(self, año, mes):
-        """Obtener guardias de un mes específico"""
-        guardias_mes = {}
-        
-        for semana_key, guardias in self.guardias.items():
-            for guardia in guardias:
-                fecha_inicio = datetime.strptime(guardia["fecha_inicio"], "%Y-%m-%d")
-                if fecha_inicio.year == año and fecha_inicio.month == mes:
-                    if semana_key not in guardias_mes:
-                        guardias_mes[semana_key] = []
-                    guardias_mes[semana_key].append(guardia)
-        
-        return guardias_mes
-    
-    def crear_texto_guardias(self, año, mes):
-        """Crear texto formateado con las guardias del mes"""
-        guardias_mes = self.obtener_guardias_mes(año, mes)
-        
-        nombre_mes = datetime(año, mes, 1).strftime("%B %Y").title()
-        
-        texto = f"📅 **GUARDIAS DE {nombre_mes.upper()}**\n"
-        texto += "━" * 35 + "\n\n"
-        
-        if not guardias_mes:
-            texto += "❌ No hay guardias programadas para este mes"
-            return texto
-        
-        for semana_key in sorted(guardias_mes.keys()):
-            guardias = guardias_mes[semana_key]
-            for guardia in guardias:
-                fecha_inicio = datetime.strptime(guardia["fecha_inicio"], "%Y-%m-%d")
-                fecha_fin = datetime.strptime(guardia["fecha_fin"], "%Y-%m-%d")
-                
-                num_semana = fecha_inicio.strftime("%U")
-                
-                texto += f"🔸 **Semana {num_semana}**\n"
-                texto += f"👤 **Persona:** {guardia['persona']}\n"
-                texto += f"📆 **Inicio:** {fecha_inicio.strftime('%d/%m/%Y (%A)')}\n"
-                texto += f"📆 **Fin:** {fecha_fin.strftime('%d/%m/%Y (%A)')}\n"
-                texto += "─" * 25 + "\n\n"
-        
-        return texto
+# Configurar logging simple
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Instancia del manager
-guardias_manager = GuardiasManager()
+# Base de datos simple en memoria
+guardias = {}
 
+# Funciones básicas
+def agregar_guardia_db(nombre, fecha):
+    if fecha not in guardias:
+        guardias[fecha] = []
+    guardias[fecha].append(nombre)
+
+def obtener_guardias_db():
+    if not guardias:
+        return "No hay guardias registradas"
+    
+    resultado = "📅 GUARDIAS REGISTRADAS:\n\n"
+    for fecha in sorted(guardias.keys()):
+        try:
+            fecha_obj = datetime.strptime(fecha, "%Y-%m-%d")
+            dia = fecha_obj.strftime("%d/%m/%Y (%A)")
+            personas = ", ".join(guardias[fecha])
+            resultado += f"📆 {dia}\n👥 {personas}\n\n"
+        except:
+            resultado += f"📆 {fecha}\n👥 {', '.join(guardias[fecha])}\n\n"
+    
+    return resultado
+
+# Comandos del bot
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /start"""
     mensaje = """
-🚨 **Bot de Guardias Semanales** 🚨
+🚨 Bot de Guardias Activo 🚨
 
-**Comandos disponibles:**
-• `/guardias` - Ver guardias del mes actual
-• `/guardias YYYY MM` - Ver guardias de un mes específico
-• `/agregar_guardia PERSONA YYYY-MM-DD [SEMANAS]` - Agregar guardia
-• `/ayuda` - Ver esta ayuda
+Comandos disponibles:
+/agregar Juan 2024-12-25 - Agregar guardia
+/guardias - Ver todas las guardias
+/ayuda - Ver esta ayuda
 
-**Ejemplo:** `/agregar_guardia Juan 2024-01-15 2`
+Bot funcionando en Render ✅
     """
-    await update.message.reply_text(mensaje, parse_mode='Markdown')
+    await update.message.reply_text(mensaje)
+    logger.info("Comando /start ejecutado")
 
-async def ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /ayuda"""
-    mensaje = """
-📋 **Ayuda - Bot de Guardias**
-
-**Comandos disponibles:**
-
-🔍 `/guardias` 
-Ver guardias del mes actual
-
-🔍 `/guardias 2024 03`
-Ver guardias de marzo 2024
-
-➕ `/agregar_guardia Juan 2024-01-15`
-Agregar una guardia semanal para Juan desde el 15/01/2024
-
-➕ `/agregar_guardia Maria 2024-02-01 3`
-Agregar 3 guardias consecutivas para María desde el 01/02/2024
-
-**Formato de fechas:** YYYY-MM-DD (Año-Mes-Día)
-**Las guardias son semanales** (7 días desde la fecha de inicio)
-    """
-    await update.message.reply_text(mensaje, parse_mode='Markdown')
-
-async def ver_guardias(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /guardias - Ver guardias del mes"""
-    try:
-        # Obtener parámetros o usar mes actual
-        if context.args and len(context.args) >= 2:
-            año = int(context.args[0])
-            mes = int(context.args[1])
-        else:
-            hoy = datetime.now()
-            año = hoy.year
-            mes = hoy.month
-        
-        # Validar mes
-        if mes < 1 or mes > 12:
-            await update.message.reply_text("❌ Mes inválido. Usar números del 1 al 12.")
-            return
-        
-        # Generar texto
-        texto = guardias_manager.crear_texto_guardias(año, mes)
-        
-        # Enviar mensaje
-        await update.message.reply_text(texto, parse_mode='Markdown')
-        
-    except ValueError:
-        await update.message.reply_text("❌ Formato inválido. Usar: `/guardias YYYY MM`", parse_mode='Markdown')
-    except Exception as e:
-        print(f"Error en ver_guardias: {e}")
-        await update.message.reply_text("❌ Error al obtener las guardias.")
-
-async def agregar_guardia(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /agregar_guardia - Agregar nueva guardia"""
+async def agregar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if len(context.args) < 2:
-            await update.message.reply_text(
-                "❌ Uso: `/agregar_guardia PERSONA YYYY-MM-DD [SEMANAS]`\n"
-                "Ejemplo: `/agregar_guardia Juan 2024-01-15 2`",
-                parse_mode='Markdown'
-            )
+            await update.message.reply_text("❌ Uso: /agregar NOMBRE YYYY-MM-DD\nEjemplo: /agregar Juan 2024-12-25")
             return
         
-        persona = context.args[0]
-        fecha_inicio = context.args[1]
-        semanas = int(context.args[2]) if len(context.args) > 2 else 1
+        nombre = context.args[0]
+        fecha = context.args[1]
         
-        # Validar fecha
-        datetime.strptime(fecha_inicio, "%Y-%m-%d")
+        # Validar formato de fecha
+        datetime.strptime(fecha, "%Y-%m-%d")
         
-        # Agregar guardia
-        guardias_manager.agregar_guardia(persona, fecha_inicio, semanas)
+        # Agregar a base de datos
+        agregar_guardia_db(nombre, fecha)
         
-        if semanas == 1:
-            mensaje = f"✅ **Guardia agregada:**\n👤 {persona}\n📅 {fecha_inicio}"
-        else:
-            mensaje = f"✅ **{semanas} guardias agregadas:**\n👤 {persona}\n📅 Desde {fecha_inicio}"
+        await update.message.reply_text(f"✅ Guardia agregada:\n👤 {nombre}\n📅 {fecha}")
+        logger.info(f"Guardia agregada: {nombre} - {fecha}")
         
-        await update.message.reply_text(mensaje, parse_mode='Markdown')
-        
-    except ValueError as e:
-        if "time data" in str(e):
-            await update.message.reply_text("❌ Fecha inválida. Usar formato YYYY-MM-DD")
-        else:
-            await update.message.reply_text("❌ Número de semanas inválido.")
+    except ValueError:
+        await update.message.reply_text("❌ Fecha inválida. Usar formato: YYYY-MM-DD")
     except Exception as e:
-        print(f"Error en agregar_guardia: {e}")
-        await update.message.reply_text("❌ Error al agregar la guardia.")
+        await update.message.reply_text("❌ Error al agregar guardia")
+        logger.error(f"Error en agregar: {e}")
 
-# Webhook para Render (necesario para el plan gratuito)
+async def ver_guardias(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        mensaje = obtener_guardias_db()
+        await update.message.reply_text(mensaje)
+        logger.info("Guardias mostradas")
+    except Exception as e:
+        await update.message.reply_text("❌ Error al mostrar guardias")
+        logger.error(f"Error en guardias: {e}")
+
+async def ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    mensaje = """
+📋 AYUDA DEL BOT:
+
+/agregar Juan 2024-12-25
+Agregar guardia para Juan el 25 de diciembre
+
+/guardias 
+Ver todas las guardias registradas
+
+/start
+Mensaje de inicio
+
+Formato de fecha: YYYY-MM-DD
+Ejemplo: 2024-12-25
+    """
+    await update.message.reply_text(mensaje)
+
+# Servidor web simple para Render
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
-class HealthHandler(BaseHTTPRequestHandler):
+class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b'Bot is running!')
+        self.wfile.write(b'Bot funcionando OK')
+    
+    def log_message(self, format, *args):
+        pass  # Silenciar logs HTTP
 
-def run_health_server():
-    server = HTTPServer(('0.0.0.0', PORT), HealthHandler)
-    server.serve_forever()
+def servidor_web():
+    try:
+        server = HTTPServer(('0.0.0.0', PORT), SimpleHandler)
+        print(f"Servidor web en puerto {PORT}")
+        server.serve_forever()
+    except Exception as e:
+        print(f"Error servidor: {e}")
 
 def main():
-    """Función principal"""
-    # Iniciar servidor de salud en un hilo separado
-    health_thread = threading.Thread(target=run_health_server, daemon=True)
-    health_thread.start()
+    # Iniciar servidor web
+    web_thread = threading.Thread(target=servidor_web, daemon=True)
+    web_thread.start()
     
-    # Crear aplicación del bot
-    application = Application.builder().token(TOKEN).build()
+    # Crear bot
+    app = Application.builder().token(TOKEN).build()
     
-    # Agregar handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("ayuda", ayuda))
-    application.add_handler(CommandHandler("guardias", ver_guardias))
-    application.add_handler(CommandHandler("agregar_guardia", agregar_guardia))
+    # Agregar comandos
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("agregar", agregar))
+    app.add_handler(CommandHandler("guardias", ver_guardias))
+    app.add_handler(CommandHandler("ayuda", ayuda))
     
     # Iniciar bot
-    print("🤖 Bot iniciado en Render. Puerto:", PORT)
-    application.run_polling()
+    print("🤖 Bot iniciado en Render")
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
     main()
