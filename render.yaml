@@ -1,0 +1,15 @@
+
+# render.yaml
+services:
+  - type: web
+    name: bot-guardias
+    runtime: python3
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot_guardias.py
+    plan: free
+    env:
+      - key: TELEGRAM_TOKEN
+        value: TU_TOKEN_AQUI
+    envVars:
+      - key: PORT
+        value: 8080
